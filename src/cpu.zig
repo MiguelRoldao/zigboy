@@ -137,6 +137,13 @@ pub const Machine = struct {
     rng: std.Random = undefined,
 
     pub fn init(self: *Machine) void {
+        // initialize data
+        @memset(&self.memory, 0);
+        @memset(&self.vram, 0);
+        @memset(&self.regs, 0);
+        @memset(&self.stack, 0);
+        @memset(&self.keyboard, false);
+
         // copy char prites to memory
         for (char_sprites, 0..) |char_sprite, i| {
             for (char_sprite, 0..) |sprite, j| {
@@ -157,19 +164,19 @@ pub const Machine = struct {
 
     // TODO: make this untied to screen resolotion
     pub fn read_vram(self: *Machine, x: u8, y: u8) u1 {
-        const pos = (x % 64) + (y % 32) * 64;
+        const pos = (x % 64) +% ((y % 32) *% 64);
         return self.vram[pos];
     }
 
     // TODO: make this untied to screen resolotion
     pub fn write_vram(self: *Machine, x: u8, y: u8, data: u1) void {
-        const pos = (x % 64) + (y % 32) * 64;
+        const pos = (x % 64) +% ((y % 32) *% 64);
         self.vram[pos] = data;
     }
 
     // TODO: make this untied to screen resolotion
     pub fn write_vram_xor(self: *Machine, x: u8, y: u8, data: u1) void {
-        const pos = (x % 64) + (y % 32) * 64;
+        const pos = (x % 64) +% ((y % 32) *% 64);
         self.vram[pos] ^= data;
     }
 
@@ -304,11 +311,11 @@ pub const Machine = struct {
     pub fn op_drw(self: *Machine) void {
         var collision: u1 = 0;
         for (0..self.op.n()) |n| {
-            const sprite = self.read(self.I + n);
+            const sprite = self.read(@truncate(self.I + n));
             for (0..8) |i| {
-                const x: u8 = self.op.x() + i;
-                const y: u8 = self.op.y() + n;
-                const pixel: u1 = (sprite >> (7 - i)) & 1;
+                const x: u8 = @truncate(self.op.x() + i);
+                const y: u8 = @truncate(self.op.y() + n);
+                const pixel: u1 = @truncate((sprite >> @intCast(7 - i)) & 1);
                 collision |= ~(pixel ^ self.read_vram(x, y));
                 self.write_vram_xor(x, y, pixel);
             }
@@ -316,14 +323,14 @@ pub const Machine = struct {
     }
 
     pub fn op_skp(self: *Machine) void {
-        const rx: u4 = @intCast(self.regs[self.op.x()]);
+        const rx: u4 = @truncate(self.regs[self.op.x()]);
         if (self.keyboard[rx]) {
             self.pc += 2;
         }
     }
 
     pub fn op_sknp(self: *Machine) void {
-        const rx: u4 = @intCast(self.regs[self.op.x()]);
+        const rx: u4 = @truncate(self.regs[self.op.x()]);
         if (!self.keyboard[rx]) {
             self.pc += 2;
         }
@@ -336,7 +343,7 @@ pub const Machine = struct {
     pub fn op_ld_vx_k(self: *Machine) void {
         for (self.keyboard, 0..) |pressed, key| {
             if (pressed) {
-                self.regs[self.op.x()] = key;
+                self.regs[self.op.x()] = @truncate(key);
                 break;
             }
         } else {
@@ -357,7 +364,7 @@ pub const Machine = struct {
     }
 
     pub fn op_ld_f_vx(self: *Machine) void {
-        self.I = char_sprites[0].len * self.regs[self.op.x() % 16];
+        self.I = @truncate(char_sprites[0].len * self.regs[self.op.x()]);
     }
 
     // BCD representation
@@ -373,13 +380,13 @@ pub const Machine = struct {
 
     pub fn op_push(self: *Machine) void {
         for (0..self.op.x()) |i| {
-            self.write(self.I + i, self.regs[i]);
+            self.write(@truncate(self.I + i), self.regs[i]);
         }
     }
 
     pub fn op_pop(self: *Machine) void {
         for (0..self.op.x()) |i| {
-            self.regs[i] = self.read(self.I + i);
+            self.regs[i] = self.read(@truncate(self.I + i));
         }
     }
 
@@ -403,7 +410,7 @@ pub const Machine = struct {
         self.op = op;
 
         switch (op.z()) {
-            0x0 => switch (self.op.n) {
+            0x0 => switch (self.op.kk()) {
                 0xE0 => self.op_cls(),
                 0xEE => self.op_ret(),
                 else => return error.UnknownOp,
@@ -418,7 +425,7 @@ pub const Machine = struct {
             0x8 => {
                 const rx = self.op.x();
                 const ry = self.op.y();
-                switch (self.op.n) {
+                switch (self.op.n()) {
                     0x0 => self.op_ld(rx, ry),
                     0x1 => self.op_or(rx, ry),
                     0x2 => self.op_and(rx, ry),
@@ -436,12 +443,12 @@ pub const Machine = struct {
             0xB => self.op_jpr(),
             0xC => self.op_rnd(),
             0xD => self.op_drw(),
-            0xE => switch (self.op.n) {
+            0xE => switch (self.op.kk()) {
                 0x9E => self.op_skp(),
                 0xA1 => self.op_sknp(),
                 else => return error.UnknownOp,
             },
-            0xF => switch (self.op.n) {
+            0xF => switch (self.op.kk()) {
                 0x07 => self.op_ld_vx_dt(),
                 0x0A => self.op_ld_vx_k(),
                 0x15 => self.op_ld_dt_vx(),
@@ -453,7 +460,6 @@ pub const Machine = struct {
                 0x65 => self.op_pop(),
                 else => return error.UnknownOp,
             },
-            else => return error.UnknownOp,
         }
     }
 };
@@ -462,26 +468,26 @@ pub const Instruction = struct {
     op: u16,
 
     pub fn nnn(self: Instruction) u12 {
-        return @intCast(self.op);
+        return @truncate(self.op);
     }
 
     pub fn kk(self: Instruction) u8 {
-        return @intCast(self.op);
+        return @truncate(self.op);
     }
 
     pub fn z(self: Instruction) u4 {
-        return @intCast(self.op >> 12);
+        return @truncate(self.op >> 12);
     }
 
     pub fn x(self: Instruction) u4 {
-        return @intCast(self.op >> 8);
+        return @truncate(self.op >> 8);
     }
 
     pub fn y(self: Instruction) u4 {
-        return @intCast(self.op >> 4);
+        return @truncate(self.op >> 4);
     }
 
     pub fn n(self: Instruction) u4 {
-        return @intCast(self.op);
+        return @truncate(self.op);
     }
 };

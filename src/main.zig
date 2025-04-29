@@ -3,7 +3,11 @@
 //! is to delete this file and start with root.zig instead.
 
 const cpu = @import("cpu.zig");
+const decomp = @import("decomp.zig");
 const Machine = cpu.Machine;
+
+var decompile = false;
+var run = false;
 
 pub fn loadRom(path: []const u8, machine: *Machine) !void {
     const file = try std.fs.cwd().openFile(
@@ -12,7 +16,10 @@ pub fn loadRom(path: []const u8, machine: *Machine) !void {
     );
     defer file.close();
     _ = try file.readAll(machine.memory[0x200..]);
-    std.debug.print("Loaded ROM: {s}", .{path});
+    if (decompile) {
+        try decomp.parseRom(file, std.io.getStdOut());
+    }
+    std.debug.print("Loaded ROM: {s}\n", .{path});
 }
 
 pub fn main() !void {
@@ -22,7 +29,7 @@ pub fn main() !void {
     var arg_iter = try std.process.argsWithAllocator(std.heap.page_allocator);
     defer arg_iter.deinit();
 
-    var machine: Machine = undefined;
+    var machine: Machine = .{};
     var loaded_rom = false;
 
     while (arg_iter.next()) |arg| {
@@ -33,6 +40,10 @@ pub fn main() !void {
                 try loadRom(input_path, &machine);
             }
             loaded_rom = true;
+        } else if (std.mem.eql(u8, arg, "-d")) {
+            decompile = true;
+        } else if (std.mem.eql(u8, arg, "-r")) {
+            run = true;
         } else {
             std.debug.print("Unknown argument: {s}\n", .{arg});
         }
@@ -41,6 +52,17 @@ pub fn main() !void {
     if (!loaded_rom) {
         std.debug.print("No ROM loaded, exiting.\n", .{});
         return error.NoRomLoaded;
+    }
+
+    while (run) {
+        std.debug.print("PC: 0x{X:4>0}\n", .{machine.pc});
+        // Run the CPU cycle
+        machine.step() catch |err| {
+            switch (err) {
+                error.UnknownOp => std.debug.print("Unknown OP: 0x{x:4>0}\n", .{machine.op.op}),
+            }
+            return err;
+        };
     }
 
     // stdout is for the actual output of your application, for example if you

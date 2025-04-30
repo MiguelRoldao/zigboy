@@ -250,21 +250,109 @@ pub const Registry = struct {
     }
 
     // ***** OPCODES ***** //
-    // ----- 8-bit IO ---- //
+    // -- 8-bit transfer - //
     fn op_ld_r_r(self: *Registry) Cycles {
-        self.set_r(
-            self.op.y(),
-            self.get_r(self.op.x()),
-        );
-        return 1;
+        const r1: u3 = self.op.y();
+        const r2: u3 = self.op.y();
+        self.set_r(r1, self.get_r(r2));
+        return if (r1 == 6 or r2 == 6) 2 else 1;
     }
 
     fn op_ld_r_n(self: *Registry) Cycles {
-        self.set_r(
-            self.op.y(),
-            self.fetch(),
-        );
+        const r: u3 = self.op.y();
+        self.set_r(r, self.fetch());
+        return if (r == 6) 3 else 2;
+    }
+
+    fn op_ld_a_bc(self: *Registry) Cycles {
+        self.a = self.memory.read(word(self.b, self.c));
         return 2;
+    }
+
+    fn op_ld_a_de(self: *Registry) Cycles {
+        self.a = self.memory.read(word(self.d, self.e));
+        return 2;
+    }
+
+    fn op_ld_a_ff00_c(self: *Registry) Cycles {
+        self.a = self.memory.read(0xFF00 + self.c);
+        return 2;
+    }
+
+    fn op_ld_ff00_c_a(self: *Registry) Cycles {
+        self.memory.write(0xFF00 + self.c, self.a);
+        return 2;
+    }
+
+    fn op_ld_a_ff00_n(self: *Registry) Cycles {
+        self.a = self.memory.read(0xFF00 + self.fetch());
+        return 3;
+    }
+
+    fn op_ld_ff00_n_a(self: *Registry) Cycles {
+        self.memory.write(0xFF00 + self.fetch(), self.a);
+        return 3;
+    }
+
+    fn op_ld_nn_a(self: *Registry) Cycles {
+        const addr = self.fetch16();
+        self.memory.write(addr, self.a);
+        return 4;
+    }
+
+    fn op_ld_a_nn(self: *Registry) Cycles {
+        const addr = self.fetch16();
+        self.a = self.memory.read(addr);
+        return 4;
+    }
+
+    fn op_ld_a_hl_inc(self: *Registry) Cycles {
+        self.a = self.memory.read(word(self.h, self.l));
+        const res = @addWithOverflow(self.l, 1);
+        self.h +%= res[1];
+        self.l = res[0];
+        return 2;
+    }
+
+    fn op_ld_a_hl_dec(self: *Registry) Cycles {
+        self.a = self.memory.read(word(self.h, self.l));
+        const res = @subWithOverflow(self.l, 1);
+        self.h -%= res[1];
+        self.l = res[0];
+        return 2;
+    }
+
+    fn op_ld_bc_a(self: *Registry) Cycles {
+        self.memory.write(word(self.b, self.c), self.a);
+        return 2;
+    }
+
+    fn op_ld_de_a(self: *Registry) Cycles {
+        self.memory.write(word(self.d, self.e), self.a);
+        return 2;
+    }
+
+    fn op_ld_hl_inc_a(self: *Registry) Cycles {
+        self.memory.write(word(self.h, self.l), self.a);
+        const res = @addWithOverflow(self.l, 1);
+        self.h +%= res[1];
+        self.l = res[0];
+        return 2;
+    }
+
+    fn op_ld_hl_dec_a(self: *Registry) Cycles {
+        self.memory.write(word(self.h, self.l), self.a);
+        const res = @subWithOverflow(self.l, 1);
+        self.h -%= res[1];
+        self.l = res[0];
+        return 2;
+    }
+
+    // - 16-bit transfer - //
+    fn op_ld_rp_nn(self: *Registry) Cycles {
+        const addr = self.fetch16();
+        self.a = self.memory.read(addr);
+        return 4;
     }
 
     pub fn op_cls(self: *Machine) void {

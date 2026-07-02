@@ -1,222 +1,38 @@
 const std = @import("std");
 const word = @import("util.zig").word;
+const intcat = @import("util.zig").intcat;
 
 // TODO:
 pub const Memory = struct {};
 
-pub const Cycles = u8;
+pub const Cycles: type = u8;
 
 const Opcode = struct {
     data: u8 = 0x00,
 
-    pub fn x(self: *Opcode) u2 {
+    pub fn x(self: Opcode) u2 {
         return self.data >> 6 & 0b11;
     }
 
-    pub fn y(self: *Opcode) u3 {
+    pub fn y(self: Opcode) u3 {
         return self.data >> 3 & 0b111;
     }
 
-    pub fn z(self: *Opcode) u3 {
+    pub fn z(self: Opcode) u3 {
         return self.data & 0b111;
     }
 
-    pub fn p(self: *Opcode) u2 {
+    pub fn p(self: Opcode) u2 {
         return self.data >> 4 & 0b11;
     }
 
-    pub fn q(self: *Opcode) u1 {
+    pub fn q(self: Opcode) u1 {
         return self.data >> 3 & 0b1;
     }
 };
 
-pub const Registry = struct {
-    a: u8 = undefined,
-    f: u8 = undefined,
-    b: u8 = undefined,
-    c: u8 = undefined,
-    d: u8 = undefined,
-    e: u8 = undefined,
-    h: u8 = undefined,
-    l: u8 = undefined,
-
-    pc: u16 = undefined,
-    sp: u16 = undefined,
-
-    memory: *Memory = undefined,
-
-    vram: [64 * 32]u1 = undefined,
-    regs: [16]u8 = undefined,
-    I: u16 = 0,
-    sound_timer: u8 = 0,
-    delay_timer: u8 = 0,
-    stack: [0x100]u16 = undefined,
-
-    keyboard: [16]bool = undefined,
-
-    op: Instruction = undefined,
-
-    rng: std.Random = undefined,
-
-    pub fn get_r(self: *Registry, r: u3) u8 {
-        return switch (r) {
-            0 => self.b,
-            1 => self.c,
-            2 => self.d,
-            3 => self.e,
-            4 => self.h,
-            5 => self.l,
-            6 => self.memory.read(word(self.h, self.l)),
-            7 => self.a,
-        };
-    }
-
-    pub fn set_r(self: *Registry, r: u3, val: u8) void {
-        switch (r) {
-            0 => self.b = val,
-            1 => self.c = val,
-            2 => self.d = val,
-            3 => self.e = val,
-            4 => self.h = val,
-            5 => self.l = val,
-            6 => self.memory.write(word(self.h, self.l), val),
-            7 => self.a = val,
-        }
-    }
-
-    pub fn get_rp(self: *Registry, rp: u2) u16 {
-        return switch (rp) {
-            0 => word(self.b, self.c),
-            1 => word(self.d, self.e),
-            2 => word(self.h, self.l),
-            3 => self.sp,
-        };
-    }
-
-    pub fn set_rp(self: *Registry, rp: u2, val: u16) void {
-        const hi: u8 = @truncate(val >> 8);
-        const lo: u8 = @truncate(val & 0xff);
-        switch (rp) {
-            0 => {
-                self.b = hi;
-                self.c = lo;
-            },
-            1 => {
-                self.d = hi;
-                self.e = lo;
-            },
-            2 => {
-                self.h = hi;
-                self.l = lo;
-            },
-            3 => self.sp = val,
-        }
-    }
-
-    pub fn get_rp2(self: *Registry, rp2: u2) u16 {
-        return switch (rp2) {
-            0 => word(self.b, self.c),
-            1 => word(self.d, self.e),
-            2 => word(self.h, self.l),
-            3 => word(self.a, self.f),
-        };
-    }
-
-    pub fn set_rp2(self: *Registry, rp2: u2, val: u16) void {
-        const hi: u8 = @truncate(val >> 8);
-        const lo: u8 = @truncate(val & 0xff);
-        switch (rp2) {
-            0 => {
-                self.b = hi;
-                self.c = lo;
-            },
-            1 => {
-                self.d = hi;
-                self.e = lo;
-            },
-            2 => {
-                self.h = hi;
-                self.l = lo;
-            },
-            3 => {
-                self.a = hi;
-                self.f = lo;
-            },
-        }
-    }
-
-    pub fn get_cc(self: *Registry, cc: u2) bool {
-        return switch (cc) {
-            0 => ~self.get_z(),
-            1 => self.get_z(),
-            2 => ~self.get_c(),
-            3 => self.get_c(),
-        };
-    }
-
-    pub fn get_z(self: *Registry) bool {
-        return self.f & 0b10000000 != 0;
-    }
-
-    pub fn get_n(self: *Registry) bool {
-        return self.f & 0b01000000 != 0;
-    }
-
-    pub fn get_h(self: *Registry) bool {
-        return self.f & 0b00100000 != 0;
-    }
-
-    pub fn get_c(self: *Registry) bool {
-        return self.f & 0b00010000 != 0;
-    }
-
-    pub fn set_z(self: *Registry, val: bool) void {
-        if (val) {
-            self.f |= 0b10000000;
-        } else {
-            self.f &= ~0b10000000;
-        }
-    }
-
-    pub fn set_n(self: *Registry, val: bool) void {
-        if (val) {
-            self.f |= 0b01000000;
-        } else {
-            self.f &= ~0b01000000;
-        }
-    }
-
-    pub fn set_h(self: *Registry, val: bool) void {
-        if (val) {
-            self.f |= 0b00100000;
-        } else {
-            self.f &= ~0b00100000;
-        }
-    }
-
-    pub fn set_c(self: *Registry, val: bool) void {
-        if (val) {
-            self.f |= 0b00010000;
-        } else {
-            self.f &= ~0b00010000;
-        }
-    }
-
     // TODO:
     pub fn init(self: *Machine) void {
-        // initialize data
-        @memset(&self.memory, 0);
-        @memset(&self.vram, 0);
-        @memset(&self.regs, 0);
-        @memset(&self.stack, 0);
-        @memset(&self.keyboard, false);
-
-        // copy char prites to memory
-        for (char_sprites, 0..) |char_sprite, i| {
-            for (char_sprite, 0..) |sprite, j| {
-                self.memory[i * char_sprite.len + j] = sprite;
-            }
-        }
 
         self.rng = std.Random.DefaultPrng.init(0).random();
     }

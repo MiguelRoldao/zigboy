@@ -24,13 +24,17 @@ pub const Memory = struct {
     ier: u8 = undefined,
 
     pub fn init(self: *Memory) void {
-        // TODO: initialize cart
+        self.cart = null;
         self.vram = [_]u8{0} ** self.vram.len;
         self.iram = [_]u8{0} ** self.iram.len;
         self.oam = [_]u8{0} ** self.oam.len;
         self.io = [_]u8{0} ** self.io.len;
         self.hram = [_]u8{0} ** self.hram.len;
         self.ier = 0;
+    }
+
+    pub fn loadCart(self: *Memory, cart: *Cart) void {
+        self.cart = cart;
     }
 
     pub fn write(self: *Memory, addr: u16, data: u8) void {

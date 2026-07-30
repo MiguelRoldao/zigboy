@@ -1,11 +1,20 @@
 const std = @import("std");
 const word = @import("util.zig").word;
 const intcat = @import("util.zig").intcat;
+const isCarryFromBit = @import("util.zig").intcat;
+const Memory = @import("memory.zig").Memory;
+const Registry = @import("registry.zig").Registry;
 
-// TODO:
-pub const Memory = struct {};
+const builtin = @import("builtin");
 
-pub const Cycles: type = u8;
+pub fn db_only(val: anytype) ?@TypeOf(val) {
+    return if (builtin.mode != .Debug) val else if (@TypeOf(val) == type) void else {};
+}
+
+pub const InstInfo: type = struct {
+    cycles: u8,
+    db_info: db_only([]const u8),
+};
 
 const Opcode = struct {
     data: u8 = 0x00,
@@ -31,146 +40,182 @@ const Opcode = struct {
     }
 };
 
-    // TODO:
-    pub fn init(self: *Machine) void {
+const Machine = struct {
+    rng: std.Random,
+    regs: Registry,
+    mem: Memory,
+    op: Opcode,
 
+    pub fn init(self: *Machine) void {
         self.rng = std.Random.DefaultPrng.init(0).random();
     }
 
-    // TODO:
-    pub fn read(self: *Machine, addr: u16) u8 {
-        return self.memory[addr % self.memory.len];
+    fn fetch(self: *Machine) u8 {
+        const data = self.mem.read(self.regs.pc);
+        self.regs.pc += 1;
+        return data;
     }
 
-    // TODO:
-    pub fn write(self: *Machine, addr: u16, data: u8) void {
-        self.memory[addr % self.memory.len] = data;
+    fn fetch2(self: *Machine) u16 {
+        const hi = self.mem.read(self.regs.pc);
+        const lo = self.mem.read(self.regs.pc + 1);
+        self.regs.pc += 2;
+        return intcat(hi, lo);
     }
 
-    // TODO: make this untied to screen resolotion
-    pub fn read_vram(self: *Machine, x: u8, y: u8) u1 {
-        const pos = (x % 64) +% ((y % 32) *% 64);
-        return self.vram[pos];
-    }
-
-    // TODO: make this untied to screen resolotion
-    pub fn write_vram(self: *Machine, x: u8, y: u8, data: u1) void {
-        const pos = (x % 64) +% ((y % 32) *% 64);
-        self.vram[pos] = data;
-    }
-
-    // TODO: make this untied to screen resolotion
-    pub fn write_vram_xor(self: *Machine, x: u8, y: u8, data: u1) void {
-        const pos = (x % 64) +% ((y % 32) *% 64);
-        self.vram[pos] ^= data;
-    }
-
-    // ***** OPCODES ***** //
-    // -- 8-bit transfer - //
-    fn op_ld_r_r(self: *Registry) Cycles {
+    // === OPCODES === //
+    // *** 8-BIT TRANSFER *** //
+    fn op_ld_r_r(self: *Machine) InstInfo {
         const r1: u3 = self.op.y();
         const r2: u3 = self.op.y();
-        self.set_r(r1, self.get_r(r2));
-        return if (r1 == 6 or r2 == 6) 2 else 1;
+        self.regs.setR(r1, self.regs.getR(r2));
+        return .{ .cycles = if (r1 == 6 or r2 == 6) 2 else 1 };
     }
 
-    fn op_ld_r_n(self: *Registry) Cycles {
+    fn op_ld_r_n(self: *Machine) InstInfo {
         const r: u3 = self.op.y();
         self.set_r(r, self.fetch());
-        return if (r == 6) 3 else 2;
+        return .{ .cycles = if (r == 6) 3 else 2 };
     }
 
-    fn op_ld_a_bc(self: *Registry) Cycles {
-        self.a = self.memory.read(word(self.b, self.c));
-        return 2;
+    fn op_ld_a_bc(self: *Machine) InstInfo {
+        self.regs.a = self.mem.read(intcat(self.regs.b, self.regs.c));
+        return .{ .cycles = 2 };
     }
 
-    fn op_ld_a_de(self: *Registry) Cycles {
-        self.a = self.memory.read(word(self.d, self.e));
-        return 2;
+    fn op_ld_a_de(self: *Machine) InstInfo {
+        self.regs.a = self.mem.read(intcat(self.regs.d, self.regs.e));
+        return .{ .cycles = 2 };
     }
 
-    fn op_ld_a_ff00_c(self: *Registry) Cycles {
-        self.a = self.memory.read(0xFF00 + self.c);
-        return 2;
+    fn op_ld_a_ff00_c(self: *Machine) InstInfo {
+        self.regs.a = self.mem.read(0xFF00 + self.regs.c);
+        return .{ .cycles = 2 };
     }
 
-    fn op_ld_ff00_c_a(self: *Registry) Cycles {
-        self.memory.write(0xFF00 + self.c, self.a);
-        return 2;
+    fn op_ld_ff00_c_a(self: *Machine) InstInfo {
+        self.mem.write(0xFF00 + self.regs.c, self.regs.a);
+        return .{ .cycles = 2 };
     }
 
-    fn op_ld_a_ff00_n(self: *Registry) Cycles {
-        self.a = self.memory.read(0xFF00 + self.fetch());
-        return 3;
+    fn op_ld_a_ff00_n(self: *Machine) InstInfo {
+        self.regs.a = self.mem.read(0xFF00 + self.fetch());
+        return .{ .cycles = 3 };
     }
 
-    fn op_ld_ff00_n_a(self: *Registry) Cycles {
-        self.memory.write(0xFF00 + self.fetch(), self.a);
-        return 3;
+    fn op_ld_ff00_n_a(self: *Machine) InstInfo {
+        self.mem.write(0xFF00 + self.fetch(), self.regs.a);
+        return .{ .cycles = 3 };
     }
 
-    fn op_ld_nn_a(self: *Registry) Cycles {
-        const addr = self.fetch16();
-        self.memory.write(addr, self.a);
-        return 4;
+    fn op_ld_nn_a(self: *Machine) InstInfo {
+        const addr = self.fetch2();
+        self.mem.write(addr, self.regs.a);
+        return .{ .cycles = 4 };
     }
 
-    fn op_ld_a_nn(self: *Registry) Cycles {
-        const addr = self.fetch16();
-        self.a = self.memory.read(addr);
-        return 4;
+    fn op_ld_a_nn(self: *Machine) InstInfo {
+        const addr = self.fetch2();
+        self.regs.a = self.mem.read(addr);
+        return .{ .cycles = 4 };
     }
 
-    fn op_ld_a_hl_inc(self: *Registry) Cycles {
-        self.a = self.memory.read(word(self.h, self.l));
-        const res = @addWithOverflow(self.l, 1);
-        self.h +%= res[1];
-        self.l = res[0];
-        return 2;
+    fn op_ld_a_hl_inc(self: *Machine) InstInfo {
+        self.regs.a = self.mem.read(intcat(self.regs.h, self.regs.l));
+        const res = @addWithOverflow(self.regs.l, 1);
+        self.regs.h +%= res[1];
+        self.regs.l = res[0];
+        return .{ .cycles = 2 };
     }
 
-    fn op_ld_a_hl_dec(self: *Registry) Cycles {
-        self.a = self.memory.read(word(self.h, self.l));
-        const res = @subWithOverflow(self.l, 1);
-        self.h -%= res[1];
-        self.l = res[0];
-        return 2;
+    fn op_ld_a_hl_dec(self: *Machine) InstInfo {
+        self.regs.a = self.mem.read(intcat(self.regs.h, self.regs.l));
+        const res = @subWithOverflow(self.regs.l, 1);
+        self.regs.h -%= res[1];
+        self.regs.l = res[0];
+        return .{ .cycles = 2 };
     }
 
-    fn op_ld_bc_a(self: *Registry) Cycles {
-        self.memory.write(word(self.b, self.c), self.a);
-        return 2;
+    fn op_ld_bc_a(self: *Machine) InstInfo {
+        self.mem.write(intcat(self.regs.b, self.regs.c), self.regs.a);
+        return .{ .cycles = 2 };
     }
 
-    fn op_ld_de_a(self: *Registry) Cycles {
-        self.memory.write(word(self.d, self.e), self.a);
-        return 2;
+    fn op_ld_de_a(self: *Machine) InstInfo {
+        self.mem.write(intcat(self.regs.d, self.regs.e), self.regs.a);
+        return .{ .cycles = 2 };
     }
 
-    fn op_ld_hl_inc_a(self: *Registry) Cycles {
-        self.memory.write(word(self.h, self.l), self.a);
-        const res = @addWithOverflow(self.l, 1);
-        self.h +%= res[1];
-        self.l = res[0];
-        return 2;
+    fn op_ld_hl_inc_a(self: *Machine) InstInfo {
+        self.mem.write(intcat(self.regs.h, self.regs.l), self.regs.a);
+        const res = @addWithOverflow(self.regs.l, 1);
+        self.regs.h +%= res[1];
+        self.regs.l = res[0];
+        return .{ .cycles = 2 };
     }
 
-    fn op_ld_hl_dec_a(self: *Registry) Cycles {
-        self.memory.write(word(self.h, self.l), self.a);
-        const res = @subWithOverflow(self.l, 1);
-        self.h -%= res[1];
-        self.l = res[0];
-        return 2;
+    fn op_ld_hl_dec_a(self: *Machine) InstInfo {
+        self.mem.write(intcat(self.regs.h, self.regs.l), self.regs.a);
+        const res = @subWithOverflow(self.regs.l, 1);
+        self.regs.h -%= res[1];
+        self.regs.l = res[0];
+        return .{
+            .cycles = 2,
+        };
     }
 
-    // - 16-bit transfer - //
-    fn op_ld_rp_nn(self: *Registry) Cycles {
-        const addr = self.fetch16();
-        self.a = self.memory.read(addr);
-        return 4;
+    // *** 16-BIT TRANSFER *** //
+    fn op_ld_rp_nn(self: *Machine) InstInfo {
+        const addr = self.fetch2();
+        self.a = self.mem.read(addr);
+        return .{ .cycles = 4 };
     }
 
+    fn op_ld_sp_hl(self: *Machine) InstInfo {
+        self.regs.sp = intcat(self.regs.h, self.regs.l);
+        return .{ .cycles = 2 };
+    }
+
+    fn op_push_rp2(self: *Machine) InstInfo {
+        const rp2 = self.regs.getRp2(self.op.p());
+        const hi: u8 = rp2 >> 8;
+        const lo: u8 = rp2 | 0xff;
+        self.mem.write(self.regs.sp - 1, hi);
+        self.mem.write(self.regs.sp - 2, lo);
+        self.regs.sp -= 2;
+        return .{ .cycles = 4 };
+    }
+
+    fn op_pop_rp2(self: *Machine) InstInfo {
+        const lo = self.mem.read(self.regs.sp);
+        const hi = self.mem.read(self.regs.sp + 1);
+        self.regs.setRp2(self.op.p, intcat(hi, lo));
+        self.regs.sp += 2;
+        return .{ .cycles = 4 };
+    }
+
+    fn op_ld_hl_sp_d(self: *Machine) InstInfo {
+        const d: i8 = @bitCast(self.fetch());
+        const sp: u16 = self.regs.sp;
+        const res: u16 = @addWithOverflow(sp, d);
+        self.regs.sp = res[0];
+        self.regs.setZ(false);
+        self.regs.setH(isCarryFromBit(sp, res[0], 12));
+        self.regs.setN(false);
+        self.regs.setC(res[1]);
+        return .{ .cycles = 3 };
+    }
+
+    fn op_ld_nn_sp(self: *Machine) InstInfo {
+        const nn = self.fetch2();
+        self.mem.write2(nn, self.regs.sp);
+        return .{ .cycles = 5 };
+    }
+
+    // *** 8-BIT ALU *** //
+    // TODO: Keep going from here
+
+    // TODO: Remove. This are the old chip8 opcodes
     pub fn op_cls(self: *Machine) void {
         self.vram = [_]u1{0} ** self.vram.len;
     }
@@ -368,35 +413,10 @@ const Opcode = struct {
         self.write(self.I + 2, ones);
     }
 
-    pub fn op_push(self: *Machine) void {
-        for (0..self.op.x()) |i| {
-            self.write(@truncate(self.I + i), self.regs[i]);
-        }
-    }
-
-    pub fn op_pop(self: *Machine) void {
-        for (0..self.op.x()) |i| {
-            self.regs[i] = self.read(@truncate(self.I + i));
-        }
-    }
-
-    pub fn fetch(self: *Registry) u8 {
-        const data = self.read(self.pc);
-        self.pc += 1;
-        return data;
-    }
-
-    pub fn fetch16(self: *Registry) u16 {
-        const hi = self.read(self.pc);
-        const lo = self.read(self.pc + 1);
-        self.pc += 2;
-        return word(hi, lo);
-    }
-
     pub fn step(self: *Machine) error{UnknownOp}!void {
         const hi = self.fetch();
         const lo = self.fetch();
-        const op = Instruction{ .op = word(hi, lo) };
+        const op = Instruction{ .op = intcat(hi, lo) };
         self.op = op;
 
         switch (op.z()) {

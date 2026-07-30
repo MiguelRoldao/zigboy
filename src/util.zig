@@ -29,6 +29,21 @@ pub fn intcat(a: anytype, b: anytype) IntcatType(@TypeOf(a), @TypeOf(b)) {
     return (@as(Ret, a) << @bitSizeOf(B)) | b;
 }
 
+pub fn isCarryFromBit(a: anytype, b: anytype, n: anytype) bool {
+    const A = @TypeOf(a);
+    const B = @TypeOf(b);
+    const N = @TypeOf(n);
+
+    comptime {
+        if (A != B) @compileError("@TypeOf(a) should be equal to @TypeOf(b), instead got " + @typeName(A) + " and " + @typeName(B));
+        assertUnsignedInt(N);
+    }
+
+    if (n >= @bitSizeOf(A)) return false;
+
+    return ((a ^ b) & (1 << n)) != 0;
+}
+
 pub fn lowByte(val: u16) u8 {
     return @truncate(val);
 }

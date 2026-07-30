@@ -92,6 +92,11 @@ pub const Memory = struct {
         }
         return data;
     }
+
+    pub fn write2(self: *Memory, addr: u16, data: u16) void {
+        self.write(addr, @truncate(data & 0xff));
+        self.write(addr + 1, @truncate(data >> 8));
+    }
 };
 
 // ******* TESTS ******* //

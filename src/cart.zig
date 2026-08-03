@@ -159,13 +159,17 @@ test "rom_only_cart" {
     const rom = [_]u8{ 0x1, 0x0 } ** 0x1000;
 
     const err: Error!void = c.loadRom(&rom);
-    print("cart rom len: {any}\n", .{@as(*RomOnlyCart, @ptrCast(@alignCast(c.userdata))).rom.len});
     print("{!}\n", .{err});
     err catch try std.testing.expect(false);
+
+    print("cart rom len: {any}\n", .{@as(*RomOnlyCart, @ptrCast(@alignCast(c.userdata))).rom.len});
+
     var val = c.read(0x0000);
     print("c.read(0x0000) == 0x{x}\n", .{val});
     try std.testing.expect(val == 1);
+
     c.write(0x0000, 0xAA);
+
     val = c.read(0x0000);
     print("c.read(0x0000) == 0x{x}\n", .{val});
     try std.testing.expect(val == 1);
